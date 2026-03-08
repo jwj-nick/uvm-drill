@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UVM Drill</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
+  <div class="container" id="app">
+    <header>
+      <h1>Loading...</h1>
+    </header>
+  </div>
+  <script>
+    function toggleTheme() {
+      const isLight = document.body.classList.toggle('light');
+      localStorage.setItem('uvm-drill-theme', isLight ? 'light' : 'dark');
+      document.getElementById('theme-btn').innerHTML = isLight ? '&#9728;' : '&#9790;';
+    }
+    if (localStorage.getItem('uvm-drill-theme') === 'light') {
+      document.body.classList.add('light');
+      document.getElementById('theme-btn').innerHTML = '&#9728;';
+    }
+  </script>
+  <script src="js/app.js"></script>
+</body>
+</html>

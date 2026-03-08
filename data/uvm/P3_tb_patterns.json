@@ -1,0 +1,21 @@
+{
+  "phase": "P3",
+  "title": "실전 TB 구축",
+  "sections": [
+    {
+      "name": "TB 설계 패턴",
+      "cards": [
+        {
+          "id": "P3_01",
+          "type": "flashcard",
+          "question": "UVM TB를 처음부터 구축할 때의 순서(checklist)는?",
+          "answer": "1. DUT interface 분석 → interface 정의\n2. Transaction (sequence_item) 정의 — fields, constraints\n3. Driver 구현 — item → pin-level\n4. Monitor 구현 — pin-level → transaction\n5. Sequencer 선언 (보통 기본 사용)\n6. Agent 구현 — driver + monitor + sequencer 통합\n7. Scoreboard 구현 — reference model + compare\n8. Env 구현 — agent(s) + scoreboard 연결\n9. Base test 구현 — env 생성 + 기본 설정\n10. Sequence 작성 → test에서 실행\n11. Coverage 추가 → regression 설정",
+          "hint": "bottom-up으로 빌드, top-down으로 제어",
+          "tags": ["methodology", "checklist"],
+          "difficulty": "hard",
+          "code": null
+        }
+      ]
+    }
+  ]
+}

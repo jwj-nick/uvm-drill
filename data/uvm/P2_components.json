@@ -1,0 +1,86 @@
+{
+  "phase": "P2",
+  "title": "핵심 컴포넌트 실습",
+  "sections": [
+    {
+      "name": "Driver & Sequencer & Sequence",
+      "cards": [
+        {
+          "id": "P2_01",
+          "type": "flashcard",
+          "question": "Sequence item, sequence, sequencer의 관계를 설명하세요.",
+          "answer": "Sequence item: 하나의 transaction 데이터 (예: bus write 1회분)\nSequence: sequence item들의 시나리오/순서 정의 (body() task에서 생성)\nSequencer: sequence와 driver 사이의 중재자. 여러 sequence를 arbitration\n\n흐름: sequence.body() → start_item/finish_item → sequencer → driver.get_next_item()",
+          "hint": "편지(item), 편지 쓰는 사람(sequence), 우체국(sequencer), 배달부(driver)",
+          "tags": ["sequence", "core"],
+          "difficulty": "medium",
+          "code": null
+        },
+        {
+          "id": "P2_02",
+          "type": "flashcard",
+          "question": "Driver의 get_next_item → item_done 프로토콜을 설명하세요.",
+          "answer": "1. driver: seq_item_port.get_next_item(req) — sequencer에서 item 요청\n2. driver: pin-level 신호로 변환하여 DUT에 구동\n3. driver: seq_item_port.item_done() — 처리 완료 통보\n\nblocking call: get_next_item은 item이 올 때까지 대기\nitem_done 호출 전까지 sequencer는 다음 item을 보내지 않음\n\n대안: try_next_item() — non-blocking 버전",
+          "hint": "handshake: request(get) → process → acknowledge(done)",
+          "tags": ["driver", "protocol"],
+          "difficulty": "medium",
+          "code": null
+        },
+        {
+          "id": "P2_03",
+          "type": "flashcard",
+          "question": "start_item()과 finish_item()은 각각 언제 호출되는가?",
+          "answer": "sequence의 body() task 내에서:\n\nstart_item(req): sequencer에 접근 요청 (grant 받을 때까지 block)\n→ 이 시점에서 late randomization 가능\nfinish_item(req): item을 sequencer→driver로 전달, driver가 item_done할 때까지 block\n\n순서: start_item → randomize → finish_item\n이렇게 하면 driver가 준비된 시점에 randomize하므로 timing 정확",
+          "hint": "레스토랑: 자리 잡기(start) → 주문(randomize) → 서빙 완료 대기(finish)",
+          "tags": ["sequence", "mechanism"],
+          "difficulty": "hard",
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "Monitor & Scoreboard & Coverage",
+      "cards": [
+        {
+          "id": "P2_04",
+          "type": "flashcard",
+          "question": "Monitor에서 signal sampling timing은 어떻게 결정하는가?",
+          "answer": "프로토콜 스펙에 따라 결정:\n1. clock edge 기준 (posedge/negedge)\n2. valid/ready handshake 완료 시점\n3. 여러 cycle에 걸친 burst는 전체 완료 후 transaction 조립\n\n핵심 원칙: DUT 출력과 동일한 시점에 sampling → golden reference와 비교 가능\n\n구현: forever loop + @(posedge clk) + protocol state machine",
+          "hint": "RTL waveform에서 setup/hold 맞추는 것과 유사한 개념",
+          "tags": ["monitor", "timing"],
+          "difficulty": "medium",
+          "code": null
+        },
+        {
+          "id": "P2_05",
+          "type": "flashcard",
+          "question": "Analysis port vs TLM FIFO — 각각 언제 사용하는가?",
+          "answer": "Analysis port (uvm_analysis_port):\n→ 1:N broadcast (publisher-subscriber)\n→ monitor → 여러 subscriber에게 동시 전달\n→ non-blocking write()\n\nTLM FIFO (uvm_tlm_analysis_fifo):\n→ 수신 측에서 버퍼링 필요할 때\n→ scoreboard에서 자기 타이밍에 get()\n→ 순서 보장 필요 시\n\n일반 패턴: monitor.ap → analysis_fifo → scoreboard.get()",
+          "hint": "방송(analysis port) vs 우편함(FIFO)",
+          "tags": ["tlm", "connection"],
+          "difficulty": "medium",
+          "code": null
+        },
+        {
+          "id": "P2_06",
+          "type": "flashcard",
+          "question": "Scoreboard 구현 시 in-order vs out-of-order 비교의 차이와 패턴은?",
+          "answer": "In-order: FIFO 기반. expected/actual을 순서대로 비교\n→ 간단, 순서 보장되는 프로토콜에 적합\n→ 구현: 두 개의 FIFO, 양쪽 다 차면 compare\n\nOut-of-order: associative array 기반. ID/tag로 매칭\n→ 순서 보장 안되는 프로토콜 (예: AXI with reordering)\n→ 구현: expected를 map에 저장, actual 도착 시 ID로 lookup & compare",
+          "hint": "택배 순서대로 오는가(in-order) vs 송장번호로 찾는가(out-of-order)",
+          "tags": ["scoreboard", "pattern"],
+          "difficulty": "hard",
+          "code": null
+        },
+        {
+          "id": "P2_07",
+          "type": "flashcard",
+          "question": "Functional coverage 작성 전략 — 무엇을 cover해야 하는가?",
+          "answer": "1. Control fields: opcode, burst type, size 등 모든 legal 값\n2. Boundary values: min, max, boundary+/-1\n3. Cross coverage: 관련 필드 조합 (예: burst_type x size)\n4. Corner cases: empty/full, back-to-back, error injection\n5. Protocol scenarios: reset 중 transfer, timeout 등\n\n전략: verification plan에서 feature → coverage item 매핑\n→ 빠진 coverage = 빠진 test scenario",
+          "hint": "coverage는 '무엇을 테스트했는가'의 정량적 증거",
+          "tags": ["coverage", "strategy"],
+          "difficulty": "medium",
+          "code": null
+        }
+      ]
+    }
+  ]
+}
