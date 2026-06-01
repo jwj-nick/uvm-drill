@@ -1,569 +1,442 @@
-// UVM Drill App
-const STORAGE_KEY = 'uvm-drill-progress';
-const SR_KEY = 'uvm-drill-sr';
-const DAILY_KEY = 'uvm-drill-daily';
+/* ============================================================
+   UVM Lab — learning platform engine
+   - hash router (#/<track>/<part>/<chapter>)
+   - sidebar tree from content/manifest.json
+   - markdown render (marked) + callouts + checkpoints + mermaid + hljs
+   - progress + read-gated spaced repetition (SM-2)
+   ============================================================ */
+'use strict';
 
-const DATA_FILES = [
-  'data/uvm/P1_basics.json',
-  'data/uvm/P2_components.json',
-  'data/uvm/P3_tb_patterns.json',
-  'data/uvm/P4_interview.json',
-];
+const PROGRESS_KEY = 'uvm-lab-progress'; // { chapterId: { done, visited, checkpoints: {idx: true} } }
+const SR_KEY       = 'uvm-lab-sr';       // { cpId: { ease, interval, nextReview, reps } }
+const THEME_KEY    = 'uvm-lab-theme';
+const COLLAPSE_KEY = 'uvm-lab-collapsed'; // [partId,...]
 
-let allPhases = [];
-let progress = {};   // { cardId: { correct, wrong, streak, lastSeen } }
-let srData = {};     // { cardId: { ease, interval, nextReview, reps } }
-let currentPhase = null;
-let currentSection = null; // null = all sections
-let currentCards = [];
-let currentIndex = 0;
-let filter = 'all';
-let viewMode = 'home';
+let manifest = null;
+let flatChapters = [];          // [{trackId, partId, chapter, href}] in order
+let chapterById = {};
+let progress = {};
+let srData = {};
+let collapsed = new Set();
+let mdCache = {};
 
-// ===================== Data Loading =====================
-async function loadData() {
-  const results = await Promise.all(
-    DATA_FILES.map(f => fetch(f).then(r => r.json()))
-  );
-  allPhases = results;
-  loadProgress();
-  loadSR();
-  renderHome();
-}
+/* ===================== Storage ===================== */
+function load(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; } }
+function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+function saveProgress() { save(PROGRESS_KEY, progress); }
+function saveSR() { save(SR_KEY, srData); }
 
-// ===================== LocalStorage =====================
-function loadProgress() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) progress = JSON.parse(saved);
-}
-function saveProgress() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-}
-function loadSR() {
-  const saved = localStorage.getItem(SR_KEY);
-  if (saved) srData = JSON.parse(saved);
-}
-function saveSR() {
-  localStorage.setItem(SR_KEY, JSON.stringify(srData));
-}
-
-// ===================== Spaced Repetition (SM-2) =====================
-function updateSR(cardId, quality) {
-  if (!srData[cardId]) {
-    srData[cardId] = { ease: 2.5, interval: 0, nextReview: 0, reps: 0 };
+/* ===================== Theme ===================== */
+function applyTheme(light) {
+  document.body.classList.toggle('light', light);
+  const icon = light ? '&#9728;' : '&#9790;';
+  ['theme-btn', 'theme-btn-desktop'].forEach(id => { const b = document.getElementById(id); if (b) b.innerHTML = icon; });
+  const themeLink = document.getElementById('hljs-theme');
+  themeLink.href = light
+    ? 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css'
+    : 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css';
+  if (window.mermaid) {
+    mermaid.initialize({ startOnLoad: false, theme: light ? 'default' : 'dark', securityLevel: 'loose' });
   }
-  const d = srData[cardId];
-  if (quality >= 3) {
+}
+function toggleTheme() {
+  const light = !document.body.classList.contains('light');
+  save(THEME_KEY, light ? 'light' : 'dark');
+  applyTheme(light);
+  // re-render mermaid diagrams in current view
+  if (location.hash.startsWith('#/a/') || location.hash.startsWith('#/b/') || location.hash.startsWith('#/ref/')) router();
+}
+
+/* ===================== Init ===================== */
+async function init() {
+  applyTheme(load(THEME_KEY, 'dark') === 'light');
+  progress = load(PROGRESS_KEY, {});
+  srData = load(SR_KEY, {});
+  collapsed = new Set(load(COLLAPSE_KEY, []));
+
+  marked.setOptions({ gfm: true, breaks: false });
+
+  try {
+    manifest = await fetch('content/manifest.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      `<div class="content-inner"><div class="callout gotcha"><div class="callout-title">로드 실패</div>
+      <p><code>content/manifest.json</code>을 불러오지 못했습니다 (${e.message}).</p>
+      <p>이 앱은 정적 서버에서 열어야 합니다 (<code>file://</code> 직접 열기는 fetch가 막힙니다).
+      예: <code>python3 -m http.server</code> 후 <code>localhost:8000</code>.</p></div></div>`;
+    return;
+  }
+
+  buildFlatIndex();
+  wireChrome();
+  renderSidebar();
+  window.addEventListener('hashchange', router);
+  router();
+}
+
+function buildFlatIndex() {
+  flatChapters = [];
+  chapterById = {};
+  for (const track of manifest.tracks) {
+    for (const part of (track.parts || [])) {
+      for (const ch of part.chapters) {
+        const href = `#/${track.id}/${part.id}/${ch.id}`;
+        const entry = { trackId: track.id, trackTitle: track.title, partId: part.id, partTitle: part.title, chapter: ch, href };
+        flatChapters.push(entry);
+        chapterById[ch.id] = entry;
+      }
+    }
+  }
+}
+
+function wireChrome() {
+  document.getElementById('theme-btn').onclick = toggleTheme;
+  document.getElementById('theme-btn-desktop').onclick = toggleTheme;
+  const sidebar = document.getElementById('sidebar');
+  const scrim = document.getElementById('scrim');
+  const openSidebar = (open) => { sidebar.classList.toggle('open', open); scrim.classList.toggle('show', open); };
+  document.getElementById('menu-btn').onclick = () => openSidebar(!sidebar.classList.contains('open'));
+  scrim.onclick = () => openSidebar(false);
+  document.getElementById('reset-link').onclick = resetProgress;
+  document.getElementById('sidebar-search').addEventListener('input', e => filterSidebar(e.target.value.trim().toLowerCase()));
+}
+
+function resetProgress() {
+  if (!confirm('모든 학습 진도와 복습 일정이 초기화됩니다. 계속할까요?')) return;
+  progress = {}; srData = {};
+  saveProgress(); saveSR();
+  renderSidebar(); router();
+}
+
+/* ===================== Progress helpers ===================== */
+function chapProg(id) { return progress[id] || { done: false, visited: false, checkpoints: {} }; }
+function isDone(id) { return !!(progress[id] && progress[id].done); }
+function markVisited(id) {
+  const p = chapProg(id); p.visited = true; progress[id] = p; saveProgress();
+}
+function toggleDone(id) {
+  const p = chapProg(id); p.done = !p.done; progress[id] = p; saveProgress();
+  renderSidebar();
+}
+
+function partProgress(part) {
+  let done = 0;
+  for (const ch of part.chapters) if (isDone(ch.id)) done++;
+  return { done, total: part.chapters.length };
+}
+function trackProgress(track) {
+  let done = 0, total = 0;
+  for (const part of (track.parts || [])) { const p = partProgress(part); done += p.done; total += p.total; }
+  return { done, total };
+}
+function overallProgress() {
+  let done = 0, total = 0;
+  for (const t of manifest.tracks) { const p = trackProgress(t); done += p.done; total += p.total; }
+  return { done, total };
+}
+
+/* ===================== Spaced repetition (SM-2), read-gated ===================== */
+function gradeCheckpoint(cpId, good) {
+  if (!srData[cpId]) srData[cpId] = { ease: 2.5, interval: 0, nextReview: 0, reps: 0 };
+  const d = srData[cpId];
+  const q = good ? 5 : 2;
+  if (q >= 3) {
     if (d.reps === 0) d.interval = 1;
     else if (d.reps === 1) d.interval = 3;
     else d.interval = Math.round(d.interval * d.ease);
     d.reps++;
   } else {
     d.reps = 0;
-    d.interval = 0;
+    d.interval = 0; // lapse → due again immediately (gate is nextReview, not reps)
   }
-  d.ease = Math.max(1.3, d.ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
-  d.nextReview = Date.now() + d.interval * 24 * 60 * 60 * 1000;
+  d.ease = Math.max(1.3, d.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
+  d.nextReview = Date.now() + d.interval * 86400000;
   saveSR();
+  renderSidebar();
 }
-
-// ===================== Progress Helpers =====================
-function getCardStatus(cardId) {
-  const p = progress[cardId];
-  if (!p || (p.correct === 0 && p.wrong === 0)) return 'new';
-  if (p.streak >= 3) return 'mastered';
-  if (p.correct > p.wrong) return 'learning';
-  return 'weak';
-}
-
-function getPhaseStats(phase) {
-  let total = 0, mastered = 0, weak = 0, newCount = 0;
-  for (const s of phase.sections) {
-    for (const c of s.cards) {
-      total++;
-      const st = getCardStatus(c.id);
-      if (st === 'mastered') mastered++;
-      else if (st === 'weak') weak++;
-      else if (st === 'new') newCount++;
-    }
-  }
-  return { total, mastered, weak, newCount, learning: total - mastered - weak - newCount };
-}
-
-function getAllCards(phase, sectionIdx) {
-  let cards = [];
-  if (sectionIdx !== null && sectionIdx !== undefined) {
-    cards = [...phase.sections[sectionIdx].cards];
-  } else {
-    for (const s of phase.sections) cards.push(...s.cards);
-  }
-  if (filter === 'weak') return cards.filter(c => getCardStatus(c.id) === 'weak');
-  if (filter === 'new') return cards.filter(c => getCardStatus(c.id) === 'new');
-  if (filter === 'review') return cards.filter(c => getCardStatus(c.id) !== 'mastered');
-  return cards;
-}
-
-function getTotalStats() {
-  let total = 0, mastered = 0;
-  for (const phase of allPhases) {
-    const s = getPhaseStats(phase);
-    total += s.total;
-    mastered += s.mastered;
-  }
-  return { total, mastered };
-}
-
-function getDueCount() {
+function dueCheckpoints() {
   const now = Date.now();
-  let count = 0;
-  for (const phase of allPhases) {
-    for (const s of phase.sections) {
-      for (const c of s.cards) {
-        const sr = srData[c.id];
-        if (sr && sr.nextReview <= now && sr.reps > 0) count++;
+  return Object.keys(srData).filter(id => srData[id].nextReview <= now);
+}
+
+/* ===================== Markdown rendering ===================== */
+// Run hljs + mermaid + wire checkpoint buttons inside a container
+function enhance(container, chapterId) {
+  // mermaid blocks were emitted by marked as <pre><code class="language-mermaid">
+  container.querySelectorAll('code.language-mermaid').forEach(code => {
+    const pre = code.closest('pre');
+    const div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = code.textContent;
+    pre.replaceWith(div);
+  });
+  // syntax highlight remaining code blocks
+  container.querySelectorAll('pre code').forEach(block => {
+    try { hljs.highlightElement(block); } catch {}
+  });
+  if (window.mermaid) { try { mermaid.run({ nodes: container.querySelectorAll('.mermaid') }); } catch {} }
+
+  // checkpoints
+  container.querySelectorAll('.checkpoint').forEach(cp => {
+    const cId = cp.dataset.chapter;
+    const idx = +cp.dataset.cp;
+    cp.addEventListener('click', e => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === 'hint') {
+        cp.querySelector('.cp-hint-box').innerHTML = `<div class="cp-hint">${cp._hint || ''}</div>`;
+      } else if (act === 'reveal') {
+        cp.querySelector('.cp-answer-box').classList.remove('hidden');
+        btn.classList.add('hidden');
+      } else if (act === 'grade') {
+        const good = btn.dataset.good === '1';
+        const p = chapProg(cId); p.checkpoints[idx] = true; p.visited = true; progress[cId] = p; saveProgress();
+        gradeCheckpoint(`${cId}#${idx}`, good);
+        cp.querySelector('.cp-grade').innerHTML = `<div class="cp-done-msg">${good ? '✓ 복습 일정 +' : '곧 다시 복습합니다'}</div>`;
       }
-    }
-  }
-  return count;
+    });
+  });
+  // stash hints (avoid HTML-escaping issues by reading from data)
+  // hint text was put as data attribute? We rendered button only; store hint via closure not available.
 }
 
-function getDueCards() {
-  const now = Date.now();
-  const cards = [];
-  for (const phase of allPhases) {
-    for (const s of phase.sections) {
-      for (const c of s.cards) {
-        const sr = srData[c.id];
-        if (sr && sr.nextReview <= now && sr.reps > 0) cards.push(c);
+/* ===================== Sidebar ===================== */
+function renderSidebar() {
+  const ov = overallProgress();
+  const pct = ov.total ? Math.round(ov.done / ov.total * 100) : 0;
+  document.getElementById('overall').innerHTML = `
+    <div class="ov-top"><span>전체 진도</span><b>${pct}%</b></div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="ov-top" style="margin-top:4px;"><span>${ov.done} / ${ov.total} chapters</span></div>`;
+
+  const due = dueCheckpoints().length;
+  const rl = document.getElementById('review-link');
+  rl.innerHTML = `Review${due ? `<span class="due">${due}</span>` : ''}`;
+  rl.href = '#/review';
+
+  const tree = document.getElementById('nav-tree');
+  let html = '';
+  for (const track of manifest.tracks) {
+    html += `<div class="track-title">${track.title}</div>`;
+    for (const part of (track.parts || [])) {
+      const pp = partProgress(part);
+      const isCol = collapsed.has(part.id);
+      html += `<div class="part ${isCol ? 'collapsed' : ''}" data-part="${part.id}">
+        <div class="part-head" data-toggle="${part.id}">
+          <span class="caret">&#9660;</span>
+          <span>${part.title}</span>
+          <span class="ptag">${pp.done}/${pp.total}</span>
+        </div>
+        <div class="chapters">`;
+      for (const ch of part.chapters) {
+        const p = chapProg(ch.id);
+        const cls = isDone(ch.id) ? 'done' : (p.visited ? 'partial' : '');
+        html += `<a class="chap ${cls}" href="#/${track.id}/${part.id}/${ch.id}" data-chap="${ch.id}">
+          <span class="dot"></span><span class="chap-name">${ch.title}</span></a>`;
       }
+      html += `</div></div>`;
     }
   }
-  return cards;
-}
+  tree.innerHTML = html;
 
-// ===================== Markdown-lite =====================
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function renderMarkdown(text) {
-  if (!text) return '';
-  let html = escapeHtml(text);
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
-}
-
-// ===================== Render: Home =====================
-function renderHome() {
-  viewMode = 'home';
-  currentPhase = null;
-  const app = document.getElementById('app');
-  const stats = getTotalStats();
-  const pct = stats.total ? Math.round((stats.mastered / stats.total) * 100) : 0;
-  const dueCount = getDueCount();
-
-  let html = `
-    <header>
-      <h1>UVM Drill</h1>
-      <p>UVM Verification Mastery</p>
-    </header>
-
-    <div class="overall-stats">
-      <h3>Mastery</h3>
-      <div class="big-number">${pct}%</div>
-      <div class="sub">${stats.mastered} mastered / ${stats.total} total</div>
-      <div style="margin-top:8px;">
-        <span class="reset-link" onclick="resetAll()">reset all</span>
-      </div>
-    </div>
-
-    <div class="quick-actions">
-      <button class="btn-primary" onclick="startDaily()" style="background:var(--green);color:var(--bg);">Daily 5</button>
-      <button class="btn-primary" onclick="startRandom()">Random 10</button>
-      <button class="btn-primary" onclick="startWeakOnly()" style="background:var(--red);">Weak Only</button>
-      ${dueCount > 0 ? `<button class="btn-primary" onclick="startReviewDue()" style="background:var(--yellow);color:var(--bg);">Review (${dueCount})</button>` : ''}
-    </div>
-
-    <div class="phase-grid">
-  `;
-
-  for (let i = 0; i < allPhases.length; i++) {
-    const phase = allPhases[i];
-    const s = getPhaseStats(phase);
-    const pct = s.total ? Math.round((s.mastered / s.total) * 100) : 0;
-    html += `
-      <div class="phase-card" onclick="showPhase(${i})">
-        <div class="phase-header">
-          <span class="phase-badge">${phase.phase}</span>
-          <span class="phase-title">${phase.title}</span>
-        </div>
-        <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
-        <div class="phase-stats">
-          <span class="new">${s.newCount} new</span>
-          <span class="weak">${s.weak} weak</span>
-          <span class="learning">${s.learning} learning</span>
-          <span class="mastered">${s.mastered} mastered</span>
-        </div>
-      </div>
-    `;
-  }
-
-  html += `</div>`;
-  app.innerHTML = html;
-}
-
-// ===================== Render: Phase Sections =====================
-function showPhase(phaseIdx) {
-  viewMode = 'sections';
-  currentPhase = allPhases[phaseIdx];
-  const app = document.getElementById('app');
-  const phase = currentPhase;
-
-  let html = `
-    <div class="top-bar">
-      <button class="btn-back" onclick="renderHome()">&#8592; Home</button>
-      <span class="quiz-title">${phase.title}</span>
-    </div>
-
-    <button class="btn-start-all" onclick="startDrill(${phaseIdx}, null)">
-      Start All &#8594;
-    </button>
-
-    <div class="section-list">
-  `;
-
-  for (let i = 0; i < phase.sections.length; i++) {
-    const sec = phase.sections[i];
-    const mastered = sec.cards.filter(c => getCardStatus(c.id) === 'mastered').length;
-    const weak = sec.cards.filter(c => getCardStatus(c.id) === 'weak').length;
-    html += `
-      <div class="section-card" onclick="startDrill(${phaseIdx}, ${i})">
-        <div class="section-name">${sec.name}</div>
-        <div class="section-meta">
-          ${sec.cards.length} cards &middot; ${mastered} mastered
-          ${weak > 0 ? ` &middot; <span style="color:var(--red)">${weak} weak</span>` : ''}
-        </div>
-      </div>
-    `;
-  }
-
-  html += `</div>`;
-  app.innerHTML = html;
-}
-
-// ===================== Start Drill =====================
-function startDrill(phaseIdx, sectionIdx) {
-  currentPhase = allPhases[phaseIdx];
-  currentSection = sectionIdx;
-  filter = 'all';
-  currentCards = getAllCards(currentPhase, sectionIdx);
-  currentIndex = 0;
-  renderDrill();
-}
-
-function startSpecialDrill(title, cards) {
-  if (cards.length === 0) { alert('No cards available!'); return; }
-  currentPhase = { phase: 'SP', title: title, sections: [{ name: title, cards: cards }] };
-  currentSection = 0;
-  filter = 'all';
-  currentCards = [...cards];
-  currentIndex = 0;
-  renderDrill();
-}
-
-function startDaily() {
-  const today = new Date().toISOString().slice(0, 10);
-  const saved = JSON.parse(localStorage.getItem(DAILY_KEY) || '{}');
-
-  let ids;
-  if (saved.date === today && saved.ids) {
-    ids = saved.ids;
-  } else {
-    const allCards = allPhases.flatMap(p => p.sections.flatMap(s => s.cards));
-    const due = getDueCards();
-    const weak = allCards.filter(c => getCardStatus(c.id) === 'weak');
-    const newCards = allCards.filter(c => getCardStatus(c.id) === 'new');
-
-    const pool = [];
-    pool.push(...due.slice(0, 2));
-    pool.push(...weak.filter(c => !pool.find(p => p.id === c.id)).slice(0, 2));
-    pool.push(...newCards.filter(c => !pool.find(p => p.id === c.id)).slice(0, 3));
-    const rest = allCards.filter(c => !pool.find(p => p.id === c.id));
-    pool.push(...rest.sort(() => Math.random() - 0.5).slice(0, Math.max(0, 5 - pool.length)));
-
-    const picked = pool.slice(0, 5).sort(() => Math.random() - 0.5);
-    ids = picked.map(c => c.id);
-    localStorage.setItem(DAILY_KEY, JSON.stringify({ date: today, ids: ids }));
-  }
-
-  const allCards = allPhases.flatMap(p => p.sections.flatMap(s => s.cards));
-  const cards = ids.map(id => allCards.find(c => c.id === id)).filter(Boolean);
-  startSpecialDrill(`Daily (${new Date().toLocaleDateString('ko-KR')})`, cards);
-}
-
-function startRandom() {
-  const allCards = allPhases.flatMap(p => p.sections.flatMap(s => s.cards));
-  const shuffled = [...allCards].sort(() => Math.random() - 0.5).slice(0, 10);
-  startSpecialDrill('Random 10', shuffled);
-}
-
-function startWeakOnly() {
-  const allCards = allPhases.flatMap(p => p.sections.flatMap(s => s.cards));
-  const weak = allCards.filter(c => getCardStatus(c.id) === 'weak');
-  startSpecialDrill(`Weak Only (${weak.length})`, weak);
-}
-
-function startReviewDue() {
-  const due = getDueCards();
-  startSpecialDrill(`Review Due (${due.length})`, due);
-}
-
-// ===================== Render: Drill =====================
-function renderDrill() {
-  viewMode = 'drill';
-  const app = document.getElementById('app');
-
-  if (currentCards.length === 0) {
-    app.innerHTML = `
-      <div class="empty-state">
-        <p>No cards match this filter.</p>
-        <button class="btn-primary" onclick="setFilter('all')" style="margin-top:16px;">Show All</button>
-        <button class="btn-secondary" onclick="renderHome()" style="margin-top:8px;">Home</button>
-      </div>`;
-    return;
-  }
-
-  const card = currentCards[currentIndex];
-  const status = getCardStatus(card.id);
-  const statusColors = { new: 'var(--text-dim)', weak: 'var(--red)', learning: 'var(--yellow)', mastered: 'var(--green)' };
-
-  let html = `
-    <div class="top-bar">
-      <button class="btn-back" onclick="goBack()">&#8592;</button>
-      <span class="quiz-counter">${currentIndex + 1} / ${currentCards.length}</span>
-      <span class="status-badge" style="background:${statusColors[status]}">${status}</span>
-    </div>
-
-    <div class="filter-row">
-      ${['all', 'new', 'weak', 'review'].map(f =>
-        `<button class="filter-btn ${filter === f ? 'active' : ''}" onclick="setFilter('${f}')">${
-          f === 'all' ? 'All' : f === 'new' ? 'New' : f === 'weak' ? 'Weak' : 'Review'
-        }</button>`
-      ).join('')}
-    </div>
-
-    <div class="quiz-card">
-      <div class="question-text">${renderMarkdown(card.question)}</div>
-
-      <div id="hint-area"></div>
-      <div id="answer-area"></div>
-    </div>
-  `;
-
-  // Tags
-  if (card.tags && card.tags.length) {
-    html += `<div class="tag-row">`;
-    if (card.difficulty) html += `<span class="tag ${card.difficulty}">${card.difficulty}</span>`;
-    for (const t of card.tags) html += `<span class="tag">#${t}</span>`;
-    html += `</div>`;
-  }
-
-  app.innerHTML = html;
-
-  // Render hint/answer area after DOM is ready
-  renderInteraction(card);
-}
-
-function renderInteraction(card) {
-  const hintArea = document.getElementById('hint-area');
-  const answerArea = document.getElementById('answer-area');
-
-  // Hint button
-  if (card.hint) {
-    hintArea.innerHTML = `<button class="hint-btn" id="hint-btn" onclick="showHint()">Hint</button>`;
-  }
-
-  // Show Answer button
-  answerArea.innerHTML = `
-    <button class="btn-reveal" id="btn-reveal" onclick="revealAnswer()">Show Answer (Space)</button>
-  `;
-}
-
-function showHint() {
-  const card = currentCards[currentIndex];
-  document.getElementById('hint-area').innerHTML = `
-    <div class="hint-box">${escapeHtml(card.hint)}</div>
-  `;
-}
-
-function revealAnswer() {
-  const card = currentCards[currentIndex];
-  const hintBtn = document.getElementById('hint-btn');
-  if (hintBtn) hintBtn.classList.add('hidden');
-
-  document.getElementById('hint-area').innerHTML = card.hint
-    ? `<div class="hint-box">${escapeHtml(card.hint)}</div>`
-    : '';
-
-  document.getElementById('answer-area').innerHTML = `
-    <div class="answer-box">
-      <p>${renderMarkdown(card.answer)}</p>
-    </div>
-    <div class="grade-row">
-      <button class="btn-wrong" onclick="gradeCard('wrong')">Didn't know (1)</button>
-      <button class="btn-partial" onclick="gradeCard('partial')">Partial (2)</button>
-      <button class="btn-correct" onclick="gradeCard('correct')">Knew it (3)</button>
-    </div>
-  `;
-}
-
-function gradeCard(result) {
-  const card = currentCards[currentIndex];
-  const prev = progress[card.id] || { correct: 0, wrong: 0, streak: 0, lastSeen: 0 };
-
-  let srQuality;
-  if (result === 'correct') {
-    progress[card.id] = {
-      correct: prev.correct + 1,
-      wrong: prev.wrong,
-      streak: prev.streak + 1,
-      lastSeen: Date.now()
+  tree.querySelectorAll('[data-toggle]').forEach(el => {
+    el.onclick = () => {
+      const id = el.dataset.toggle;
+      if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
+      save(COLLAPSE_KEY, [...collapsed]);
+      el.closest('.part').classList.toggle('collapsed');
     };
-    srQuality = 5;
-  } else if (result === 'partial') {
-    progress[card.id] = {
-      correct: prev.correct,
-      wrong: prev.wrong,
-      streak: 0,
-      lastSeen: Date.now()
-    };
-    srQuality = 3;
-  } else {
-    progress[card.id] = {
-      correct: prev.correct,
-      wrong: prev.wrong + 1,
-      streak: 0,
-      lastSeen: Date.now()
-    };
-    srQuality = 1;
-  }
-  saveProgress();
-  updateSR(card.id, srQuality);
+  });
+  highlightActive();
+}
 
-  // Next card or complete
-  setTimeout(() => {
-    if (currentIndex < currentCards.length - 1) {
-      currentIndex++;
-      renderDrill();
-    } else {
-      renderComplete();
+function highlightActive() {
+  const id = currentChapterId();
+  document.querySelectorAll('.chap').forEach(c => c.classList.toggle('active', c.dataset.chap === id));
+}
+function currentChapterId() {
+  const m = location.hash.match(/^#\/[^/]+\/[^/]+\/([^/]+)$/);
+  return m ? m[1] : null;
+}
+
+function filterSidebar(q) {
+  document.querySelectorAll('.part').forEach(part => {
+    let any = false;
+    part.querySelectorAll('.chap').forEach(ch => {
+      const match = !q || ch.querySelector('.chap-name').textContent.toLowerCase().includes(q);
+      ch.style.display = match ? '' : 'none';
+      if (match) any = true;
+    });
+    part.style.display = any ? '' : 'none';
+    if (q) part.classList.remove('collapsed');
+  });
+}
+
+/* ===================== Router ===================== */
+function router() {
+  const hash = location.hash || '#/';
+  const content = document.getElementById('content');
+  // close mobile sidebar on navigation
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('scrim').classList.remove('show');
+
+  if (hash === '#/' || hash === '') return renderHome(content);
+  if (hash === '#/review') return renderReview(content);
+
+  const m = hash.match(/^#\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  if (!m) return renderHome(content);
+  return renderChapter(content, m[3]);
+}
+
+/* ===================== Views ===================== */
+function renderHome(content) {
+  highlightActive();
+  let cards = '';
+  for (const track of manifest.tracks) {
+    const tp = trackProgress(track);
+    const pct = tp.total ? Math.round(tp.done / tp.total * 100) : 0;
+    const first = (track.parts && track.parts[0] && track.parts[0].chapters[0])
+      ? `#/${track.id}/${track.parts[0].id}/${track.parts[0].chapters[0].id}` : '#/';
+    cards += `<a class="track-card" href="${first}">
+      <h3>${track.title}</h3>
+      <p>${track.subtitle || ''}</p>
+      <div class="meta">${tp.done}/${tp.total} chapters · ${pct}%</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+    </a>`;
+  }
+  content.innerHTML = `<div class="content-inner">
+    <div class="hero">
+      <h1>UVM Lab</h1>
+      <p>읽고 · 이해하고 · 그 자리에서 확인하는 UVM 학습 플랫폼</p>
+    </div>
+    <div class="track-cards">${cards}</div>
+    <div class="callout note"><div class="callout-title">학습 방식</div>
+      <p>각 챕터는 <b>TL;DR → 본문 → 코드 → 함정(Gotcha) → 다이어그램 → 체크포인트</b> 순서입니다.
+      체크포인트를 풀면 그 항목만 <a href="#/review">복습(Review)</a> 큐에 들어갑니다 — 안 읽은 내용은 퀴즈로 나오지 않습니다.</p></div>
+  </div>`;
+}
+
+async function renderChapter(content, chapterId) {
+  const entry = chapterById[chapterId];
+  if (!entry) return renderHome(content);
+  content.innerHTML = `<div class="content-inner"><div class="loading">Loading…</div></div>`;
+
+  let md = mdCache[chapterId];
+  if (md == null) {
+    try {
+      md = await fetch('content/' + entry.chapter.file).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+      mdCache[chapterId] = md;
+    } catch (e) {
+      content.innerHTML = `<div class="content-inner"><div class="callout gotcha"><div class="callout-title">로드 실패</div>
+        <p>${entry.chapter.file} (${e.message})</p></div></div>`;
+      return;
     }
-  }, 200);
-}
-
-function setFilter(f) {
-  filter = f;
-  currentCards = getAllCards(currentPhase, currentSection);
-  currentIndex = 0;
-  renderDrill();
-}
-
-function goBack() {
-  if (currentPhase && currentPhase.phase !== 'SP') {
-    const idx = allPhases.indexOf(currentPhase);
-    if (idx >= 0) { showPhase(idx); return; }
   }
-  renderHome();
-}
 
-// ===================== Render: Complete =====================
-function renderComplete() {
-  viewMode = 'complete';
-  const app = document.getElementById('app');
-  const stats = currentPhase ? getPhaseStats(currentPhase) : { total: 0, mastered: 0, weak: 0 };
+  markVisited(chapterId);
+  renderSidebar();
 
-  app.innerHTML = `
-    <div class="complete-box">
-      <div class="complete-icon">&#127919;</div>
-      <h2 class="complete-title">Drill Complete!</h2>
-      <div class="complete-stats">
-        Mastered: ${stats.mastered} / ${stats.total}<br>
-        Weak: ${stats.weak}
-      </div>
-      <button class="btn-primary" onclick="restartDrill()" style="width:100%;margin-bottom:8px;">Again</button>
-      <button class="btn-secondary" onclick="renderHome()" style="width:100%;">Home</button>
+  const idx = flatChapters.findIndex(f => f.chapter.id === chapterId);
+  const prev = flatChapters[idx - 1];
+  const next = flatChapters[idx + 1];
+  const done = isDone(chapterId);
+
+  // pull hints into closure: render markdown but keep checkpoint hint text
+  const { html, hints } = renderChapterBody(md, chapterId);
+
+  content.innerHTML = `<div class="content-inner">
+    <div class="crumb"><a href="#/">Home</a> › ${entry.trackTitle} › ${entry.partTitle}</div>
+    <div class="md">${html}</div>
+    <button class="mark-done ${done ? 'is-done' : ''}" id="mark-done">${done ? '✓ 완료됨 — 되돌리기' : '이 챕터 완료 표시'}</button>
+    <div class="chap-foot">
+      ${prev ? `<a class="prev" href="${prev.href}"><span class="dir">← Prev</span>${prev.chapter.title}</a>` : `<a class="prev disabled"></a>`}
+      ${next ? `<a class="next" href="${next.href}"><span class="dir">Next →</span>${next.chapter.title}</a>` : `<a class="next disabled"></a>`}
     </div>
-  `;
+  </div>`;
+
+  const md_el = content.querySelector('.md');
+  // attach hints to checkpoints before enhancing
+  md_el.querySelectorAll('.checkpoint').forEach(cp => { cp._hint = hints[cp.dataset.cp] || ''; });
+  enhance(md_el, chapterId);
+
+  document.getElementById('mark-done').onclick = () => {
+    toggleDone(chapterId);
+    const b = document.getElementById('mark-done');
+    const d = isDone(chapterId);
+    b.className = `mark-done ${d ? 'is-done' : ''}`;
+    b.textContent = d ? '✓ 완료됨 — 되돌리기' : '이 챕터 완료 표시';
+  };
+  window.scrollTo(0, 0);
+  highlightActive();
 }
 
-function restartDrill() {
-  currentCards = getAllCards(currentPhase, currentSection);
-  currentIndex = 0;
-  filter = 'all';
-  renderDrill();
-}
-
-// ===================== Reset =====================
-function resetAll() {
-  if (confirm('All progress will be reset. Continue?')) {
-    progress = {};
-    srData = {};
-    saveProgress();
-    saveSR();
-    localStorage.removeItem(DAILY_KEY);
-    renderHome();
+// Parse a checkpoint body into {q,a,h}. Fields begin with Q:/A:/H: at line start
+// and continue (multi-line) until the next marker.
+function parseCheck(body) {
+  const fields = { Q: [], A: [], H: [] };
+  let cur = null;
+  for (const line of body.split('\n')) {
+    const m = line.match(/^([QAH]):\s?(.*)$/);
+    if (m) { cur = m[1]; fields[cur].push(m[2]); }
+    else if (cur) fields[cur].push(line);
   }
+  return { q: fields.Q.join('\n').trim(), a: fields.A.join('\n').trim(), h: fields.H.join('\n').trim() };
 }
 
-// ===================== Keyboard =====================
-document.addEventListener('keydown', (e) => {
-  if (viewMode === 'home' || viewMode === 'sections') {
-    if (e.key === 'Escape') renderHome();
+// returns {html, hints:{idx:hintHtml}}
+function renderChapterBody(src, chapterId) {
+  const hints = {};
+  src = src.replace(/```check\n([\s\S]*?)```/g, (_, body) => {
+    const { q, a, h } = parseCheck(body);
+    const idx = Object.keys(hints).length;
+    hints[idx] = h ? marked.parseInline(h) : '';
+    return `\n<div class="checkpoint" data-cp="${idx}" data-chapter="${chapterId}">
+      <div class="cp-head">✓ Checkpoint</div>
+      <div class="cp-body">
+        <div class="cp-q">${marked.parseInline(q)}</div>
+        ${h ? `<button class="cp-hint-btn" data-act="hint">Hint</button>` : ''}
+        <button class="cp-reveal" data-act="reveal">정답 보기</button>
+        <div class="cp-hint-box"></div>
+        <div class="cp-answer-box hidden">
+          <div class="cp-answer">${marked.parse(a)}</div>
+          <div class="cp-grade">
+            <button class="cp-again" data-act="grade" data-good="0">다시</button>
+            <button class="cp-good" data-act="grade" data-good="1">알았음</button>
+          </div>
+        </div>
+      </div>
+    </div>\n`;
+  });
+  src = src.replace(/:::(\w+)(?:[ \t]+([^\n]*))?\n([\s\S]*?)\n:::/g, (_, type, title, body) => {
+    const labels = { tldr: 'TL;DR', gotcha: '⚠ Gotcha', tip: '✓ Tip', note: 'Note', analogy: '≈ 비유' };
+    const label = (title && title.trim()) || labels[type] || type;
+    return `\n<div class="callout ${type}"><div class="callout-title">${label}</div>\n\n${body.trim()}\n\n</div>\n`;
+  });
+  const html = marked.parse(src);
+  return { html, hints };
+}
+
+function renderReview(content) {
+  highlightActive();
+  const due = dueCheckpoints();
+  if (!due.length) {
+    content.innerHTML = `<div class="content-inner"><div class="hero"><h1>Review</h1></div>
+      <div class="review-empty">복습할 항목이 없습니다. 챕터의 체크포인트를 풀면 여기 쌓입니다.</div></div>`;
     return;
   }
-
-  if (viewMode === 'complete') {
-    if (e.key === 'Escape' || e.key === 'Enter') renderHome();
-    return;
+  // group by chapter
+  const byChap = {};
+  for (const id of due) { const cId = id.split('#')[0]; (byChap[cId] = byChap[cId] || []).push(id); }
+  let list = '';
+  for (const cId in byChap) {
+    const entry = chapterById[cId];
+    if (!entry) continue;
+    list += `<a class="track-card" href="${entry.href}"><h3>${entry.chapter.title}</h3>
+      <p>${entry.partTitle}</p><div class="meta">복습 대기 ${byChap[cId].length}개 체크포인트</div></a>`;
   }
+  content.innerHTML = `<div class="content-inner"><div class="hero"><h1>Review</h1>
+    <p>${due.length}개 체크포인트가 복습 대기 중입니다. 챕터로 이동해 다시 풀어보세요.</p></div>
+    <div class="track-cards">${list}</div></div>`;
+}
 
-  if (viewMode !== 'drill' || !currentCards.length) return;
-
-  // Reveal answer
-  if (e.key === ' ' || e.key === 'Enter') {
-    e.preventDefault();
-    const revealBtn = document.getElementById('btn-reveal');
-    if (revealBtn) { revealAnswer(); return; }
-  }
-
-  // Hint
-  if (e.key === 'h' || e.key === 'H') {
-    const hintBtn = document.getElementById('hint-btn');
-    if (hintBtn) { showHint(); return; }
-  }
-
-  // Grade: 1=didn't know, 2=partial, 3=knew it
-  if (e.key === '1') { const btn = document.querySelector('.btn-wrong'); if (btn) gradeCard('wrong'); }
-  if (e.key === '2') { const btn = document.querySelector('.btn-partial'); if (btn) gradeCard('partial'); }
-  if (e.key === '3') { const btn = document.querySelector('.btn-correct'); if (btn) gradeCard('correct'); }
-
-  // Navigation
-  if (e.key === 'ArrowLeft' && currentIndex > 0) {
-    currentIndex--;
-    renderDrill();
-  }
-  if (e.key === 'ArrowRight' && currentIndex < currentCards.length - 1) {
-    currentIndex++;
-    renderDrill();
-  }
-
-  if (e.key === 'Escape') goBack();
-});
-
-// ===================== Init =====================
-loadData();
+init();

@@ -3,27 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UVM Drill</title>
+  <title>UVM Lab</title>
   <link rel="stylesheet" href="css/style.css">
+  <!-- Syntax highlighting theme (swapped by JS on theme change) -->
+  <link rel="stylesheet" id="hljs-theme"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
 </head>
 <body>
-  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
-  <div class="container" id="app">
-    <header>
-      <h1>Loading...</h1>
-    </header>
+  <!-- ===== Top bar (mobile) ===== -->
+  <div class="topbar">
+    <button class="icon-btn" id="menu-btn" title="Menu" aria-label="Toggle sidebar">&#9776;</button>
+    <span class="topbar-title">UVM Lab</span>
+    <button class="icon-btn" id="theme-btn" title="Toggle light/dark">&#9790;</button>
   </div>
-  <script>
-    function toggleTheme() {
-      const isLight = document.body.classList.toggle('light');
-      localStorage.setItem('uvm-drill-theme', isLight ? 'light' : 'dark');
-      document.getElementById('theme-btn').innerHTML = isLight ? '&#9728;' : '&#9790;';
-    }
-    if (localStorage.getItem('uvm-drill-theme') === 'light') {
-      document.body.classList.add('light');
-      document.getElementById('theme-btn').innerHTML = '&#9728;';
-    }
-  </script>
+
+  <div class="layout">
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <a href="#/" class="brand">UVM&nbsp;Lab</a>
+        <button class="icon-btn theme-desktop" id="theme-btn-desktop" title="Toggle light/dark">&#9790;</button>
+      </div>
+      <input type="search" class="sidebar-search" id="sidebar-search" placeholder="Search chapters…" autocomplete="off">
+      <div class="overall" id="overall"></div>
+      <nav class="nav-tree" id="nav-tree"></nav>
+      <div class="sidebar-foot">
+        <a href="#/review" class="review-link" id="review-link">Review</a>
+        <span class="reset-link" id="reset-link">reset progress</span>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <!-- ===== Content ===== -->
+    <main class="content" id="content">
+      <div class="loading">Loading…</div>
+    </main>
+  </div>
+
+  <!-- Libraries (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/verilog.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

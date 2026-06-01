@@ -1,0 +1,146 @@
+{
+  "tracks": [
+    {
+      "id": "a",
+      "title": "Track A · Learn A–Z",
+      "subtitle": "SystemVerilog 선수지식부터 RAL·방법론까지 순서대로",
+      "parts": [
+        {
+          "id": "part0",
+          "title": "Part 0 · SV 선수지식",
+          "chapters": [
+            { "id": "sv-interface", "title": "Interface & Clocking Block", "file": "a/part0/interface.md" },
+            { "id": "sv-oop", "title": "OOP: class · 상속 · 다형성", "file": "a/part0/oop.md" },
+            { "id": "sv-random", "title": "Randomization & Constraints", "file": "a/part0/random.md" },
+            { "id": "sv-coverage", "title": "Functional Coverage", "file": "a/part0/coverage.md" },
+            { "id": "sv-processes", "title": "fork-join · mailbox · event", "file": "a/part0/processes.md" },
+            { "id": "sv-vif", "title": "Virtual Interface", "file": "a/part0/vif.md" }
+          ]
+        },
+        {
+          "id": "part1",
+          "title": "Part 1 · UVM 기초",
+          "chapters": [
+            { "id": "why-uvm", "title": "Why UVM", "file": "a/part1/why-uvm.md" },
+            { "id": "class-hierarchy", "title": "Class Hierarchy", "file": "a/part1/class-hierarchy.md" },
+            { "id": "phases", "title": "UVM Phases", "file": "a/part1/phases.md" },
+            { "id": "objections", "title": "Objections & End of Test", "file": "a/part1/objections.md" },
+            { "id": "reporting", "title": "Reporting & Verbosity", "file": "a/part1/reporting.md" }
+          ]
+        },
+        {
+          "id": "part2",
+          "title": "Part 2 · Factory & Config",
+          "chapters": [
+            { "id": "factory", "title": "Factory & create()", "file": "a/part2/factory.md" },
+            { "id": "overrides", "title": "Type vs Instance Override", "file": "a/part2/overrides.md" },
+            { "id": "config-db", "title": "Config DB", "file": "a/part2/config-db.md" },
+            { "id": "field-automation", "title": "Field Automation 매크로", "file": "a/part2/field-automation.md" }
+          ]
+        },
+        {
+          "id": "part3",
+          "title": "Part 3 · Stimulus",
+          "chapters": [
+            { "id": "sequence-item", "title": "Sequence Item / Transaction", "file": "a/part3/sequence-item.md" },
+            { "id": "driver-sequencer", "title": "Driver–Sequencer Handshake", "file": "a/part3/driver-sequencer.md" },
+            { "id": "sequences", "title": "Sequences", "file": "a/part3/sequences.md" },
+            { "id": "arbitration", "title": "Arbitration · lock · grab", "file": "a/part3/arbitration.md" },
+            { "id": "virtual-sequences", "title": "Virtual Sequences & Sequencer", "file": "a/part3/virtual-sequences.md" }
+          ]
+        },
+        {
+          "id": "part4",
+          "title": "Part 4 · Analysis & Check",
+          "chapters": [
+            { "id": "tlm", "title": "TLM 1.0 Ports", "file": "a/part4/tlm.md" },
+            { "id": "monitor", "title": "Monitor 설계", "file": "a/part4/monitor.md" },
+            { "id": "scoreboard", "title": "Scoreboard 패턴", "file": "a/part4/scoreboard.md" },
+            { "id": "coverage-collector", "title": "Coverage Collector / Subscriber", "file": "a/part4/coverage-collector.md" }
+          ]
+        },
+        {
+          "id": "part5",
+          "title": "Part 5 · Agent / Env / Test",
+          "chapters": [
+            { "id": "agent", "title": "Agent (active/passive)", "file": "a/part5/agent.md" },
+            { "id": "env", "title": "Environment", "file": "a/part5/env.md" },
+            { "id": "test", "title": "Test & run_test", "file": "a/part5/test.md" }
+          ]
+        },
+        {
+          "id": "part6",
+          "title": "Part 6 · RAL",
+          "chapters": [
+            { "id": "reg-model", "title": "Register Model", "file": "a/part6/reg-model.md" },
+            { "id": "adapter-predictor", "title": "Adapter & Predictor", "file": "a/part6/adapter-predictor.md" },
+            { "id": "frontdoor-backdoor", "title": "Frontdoor vs Backdoor", "file": "a/part6/frontdoor-backdoor.md" },
+            { "id": "ral-sequences", "title": "Built-in Reg Sequences", "file": "a/part6/ral-sequences.md" }
+          ]
+        },
+        {
+          "id": "part7",
+          "title": "Part 7 · Advanced",
+          "chapters": [
+            { "id": "callbacks", "title": "Callbacks", "file": "a/part7/callbacks.md" },
+            { "id": "phasing-advanced", "title": "Advanced Phasing", "file": "a/part7/phasing-advanced.md" },
+            { "id": "sync", "title": "Heartbeat · Barrier · Event Pool", "file": "a/part7/sync.md" },
+            { "id": "debugging", "title": "UVM 디버깅", "file": "a/part7/debugging.md" }
+          ]
+        },
+        {
+          "id": "part8",
+          "title": "Part 8 · 방법론",
+          "chapters": [
+            { "id": "tb-architecture", "title": "TB 아키텍처 패턴", "file": "a/part8/tb-architecture.md" },
+            { "id": "vertical-reuse", "title": "Vertical Reuse", "file": "a/part8/vertical-reuse.md" },
+            { "id": "coverage-closure", "title": "Coverage Closure", "file": "a/part8/coverage-closure.md" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "title": "Track B · SV → UVM Migration",
+      "subtitle": "APB·AXI·IRQ·clock·reset·debug가 있는 실제 TB를 단계별로 이주",
+      "parts": [
+        {
+          "id": "mig",
+          "title": "Migration Project",
+          "chapters": [
+            { "id": "legacy-tb", "title": "0. 출발점: Legacy SV TB", "file": "b/legacy-tb.md" },
+            { "id": "mapping", "title": "1. 매핑: SV → UVM 컴포넌트", "file": "b/mapping.md" },
+            { "id": "interface-reset", "title": "2. Interface · Clock · Reset 분리", "file": "b/interface-reset.md" },
+            { "id": "apb-agent", "title": "3. APB Agent", "file": "b/apb-agent.md" },
+            { "id": "axi-agent", "title": "4. AXI Agent", "file": "b/axi-agent.md" },
+            { "id": "interrupt", "title": "5. Interrupt 처리", "file": "b/interrupt.md" },
+            { "id": "clock-reset", "title": "6. Clock/Reset 시나리오", "file": "b/clock-reset.md" },
+            { "id": "debug-signals", "title": "7. Debug Signal & Assertion", "file": "b/debug-signals.md" },
+            { "id": "scoreboard-refmodel", "title": "8. Scoreboard + Reference Model", "file": "b/scoreboard-refmodel.md" },
+            { "id": "ral", "title": "9. RAL 통합", "file": "b/ral.md" },
+            { "id": "virtual-sequencer", "title": "10. Virtual Sequencer 조율", "file": "b/virtual-sequencer.md" },
+            { "id": "bringup-coverage", "title": "11. Bring-up → Coverage Closure", "file": "b/bringup-coverage.md" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ref",
+      "title": "Reference",
+      "subtitle": "치트시트 · 빠른 참조",
+      "parts": [
+        {
+          "id": "cheat",
+          "title": "Cheat Sheets",
+          "chapters": [
+            { "id": "macros", "title": "매크로 치트시트", "file": "ref/macros.md" },
+            { "id": "phase-order", "title": "Phase 순서표", "file": "ref/phase-order.md" },
+            { "id": "tlm-ports", "title": "TLM Port 종류", "file": "ref/tlm-ports.md" },
+            { "id": "ral-api", "title": "RAL API 요약", "file": "ref/ral-api.md" },
+            { "id": "cli-args", "title": "Command-line 인자", "file": "ref/cli-args.md" }
+          ]
+        }
+      ]
+    }
+  ]
+}
