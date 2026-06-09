@@ -390,22 +390,24 @@ function renderChapterBody(src, chapterId) {
     const { q, a, h } = parseCheck(body);
     const idx = Object.keys(hints).length;
     hints[idx] = h ? marked.parseInline(h) : '';
+    // NOTE: 생성 HTML은 반드시 col 0 정렬 — 들여쓰면 marked가 indented code block으로 해석해 raw HTML이 보인다.
+    const aHtml = marked.parse(a).trim();
     return `\n<div class="checkpoint" data-cp="${idx}" data-chapter="${chapterId}">
-      <div class="cp-head">✓ Checkpoint</div>
-      <div class="cp-body">
-        <div class="cp-q">${marked.parseInline(q)}</div>
-        ${h ? `<button class="cp-hint-btn" data-act="hint">Hint</button>` : ''}
-        <button class="cp-reveal" data-act="reveal">정답 보기</button>
-        <div class="cp-hint-box"></div>
-        <div class="cp-answer-box hidden">
-          <div class="cp-answer">${marked.parse(a)}</div>
-          <div class="cp-grade">
-            <button class="cp-again" data-act="grade" data-good="0">다시</button>
-            <button class="cp-good" data-act="grade" data-good="1">알았음</button>
-          </div>
-        </div>
-      </div>
-    </div>\n`;
+<div class="cp-head">✓ Checkpoint</div>
+<div class="cp-body">
+<div class="cp-q">${marked.parseInline(q)}</div>
+${h ? `<button class="cp-hint-btn" data-act="hint">Hint</button>` : ''}
+<button class="cp-reveal" data-act="reveal">정답 보기</button>
+<div class="cp-hint-box"></div>
+<div class="cp-answer-box hidden">
+<div class="cp-answer">${aHtml}</div>
+<div class="cp-grade">
+<button class="cp-again" data-act="grade" data-good="0">다시</button>
+<button class="cp-good" data-act="grade" data-good="1">알았음</button>
+</div>
+</div>
+</div>
+</div>\n`;
   });
   src = src.replace(/:::(\w+)(?:[ \t]+([^\n]*))?\n([\s\S]*?)\n:::/g, (_, type, title, body) => {
     const labels = { tldr: 'TL;DR', gotcha: '⚠ Gotcha', tip: '✓ Tip', note: 'Note', analogy: '≈ 비유' };
