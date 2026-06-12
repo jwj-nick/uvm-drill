@@ -44,7 +44,7 @@ function toggleTheme() {
   save(THEME_KEY, light ? 'light' : 'dark');
   applyTheme(light);
   // re-render mermaid diagrams in current view
-  if (location.hash.startsWith('#/a/') || location.hash.startsWith('#/b/') || location.hash.startsWith('#/ref/')) router();
+  if (location.hash.startsWith('#/a/') || location.hash.startsWith('#/b/') || location.hash.startsWith('#/c/') || location.hash.startsWith('#/ref/')) router();
 }
 
 /* ===================== Init ===================== */

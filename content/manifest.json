@@ -125,6 +125,25 @@
       ]
     },
     {
+      "id": "c",
+      "title": "Track C · 직접 만드는 UVM",
+      "subtitle": "집에서 무료 도구로 FIFO→UVM→RLE→RAL 검증 환경을 손으로 짓는 Home Lab",
+      "parts": [
+        {
+          "id": "lab",
+          "title": "Home Lab — 프로젝트 아크",
+          "chapters": [
+            { "id": "overview", "title": "개요 · 직접 만드는 UVM", "file": "c/overview.md" },
+            { "id": "m0-env", "title": "M0 · Home Lab 환경 (컴파일 게이트)", "file": "c/m0-env.md" },
+            { "id": "m1-fifo-sv", "title": "M1 · sync FIFO + 순수 SV TB", "file": "c/m1-fifo-sv.md" },
+            { "id": "m2-fifo-uvm", "title": "M2 · FIFO를 UVM으로 이주", "file": "c/m2-fifo-uvm.md" },
+            { "id": "m3-rle-env", "title": "M3 · RLE 인코더 + full UVM env", "file": "c/m3-rle-env.md" },
+            { "id": "m4-rle-ral", "title": "M4 · RLE + APB config + RAL", "file": "c/m4-rle-ral.md" }
+          ]
+        }
+      ]
+    },
+    {
       "id": "ref",
       "title": "Reference",
       "subtitle": "치트시트 · 빠른 참조",
